@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@v10
+
+      - name: Install Luarocks
+        uses: leafo/gh-actions-luarocks@v4
+
+      - name: Extract release version
+        id: release_env
+        shell: bash
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#v}"
+          rockspec=$(ls "lua-resty-session-${version}"-*.rockspec 2>/dev/null | head -n1)
+          if [[ -z "$rockspec" ]]; then
+            echo "no rockspec found for version ${version}, expected lua-resty-session-${version}-*.rockspec"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "rockspec=${rockspec}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.release_env.outputs.tag }}" \
+            --title "${{ steps.release_env.outputs.tag }}" \
+            --generate-notes
+
+      - name: Upload to luarocks
+        env:
+          LUAROCKS_TOKEN: ${{ secrets.LUAROCKS_TOKEN }}
+        run: |
+          luarocks upload "${{ steps.release_env.outputs.rockspec }}" --api-key="${LUAROCKS_TOKEN}"
