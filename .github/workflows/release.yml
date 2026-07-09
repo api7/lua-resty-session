@@ -7,16 +7,21 @@ on:
     paths:
       - 'rockspecs/**'
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install Lua
-        uses: leafo/gh-actions-lua@v8
+        uses: leafo/gh-actions-lua@v10
 
       - name: Install Luarocks
         uses: leafo/gh-actions-luarocks@v4
@@ -24,31 +29,30 @@ jobs:
       - name: Extract release name
         id: release_env
         shell: bash
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          title="${{ github.event.head_commit.message }}"
+          title="$COMMIT_MESSAGE"
           re="^feat: release v*(\S+)"
           if [[ $title =~ $re ]]; then
-              v=v${BASH_REMATCH[1]}
-              echo "##[set-output name=version;]${v}"
-              echo "##[set-output name=version_withou_v;]${BASH_REMATCH[1]}"
+              echo "version=v${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+              echo "version_without_v=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
           else
               echo "commit format is not correct"
               exit 1
           fi
 
       - name: Create Release
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.release_env.outputs.version }}
-          release_name: ${{ steps.release_env.outputs.version }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release_env.outputs.version }}
+        run: |
+          gh release create "$VERSION" --title "$VERSION" --generate-notes
 
       - name: Upload to luarocks
         env:
           LUAROCKS_TOKEN: ${{ secrets.LUAROCKS_TOKEN }}
+          VERSION_WITHOUT_V: ${{ steps.release_env.outputs.version_without_v }}
         run: |
           luarocks install dkjson
-          luarocks upload rockspecs/lua-resty-session-api7-${{ steps.release_env.outputs.version_withou_v }}-0.rockspec --api-key=${LUAROCKS_TOKEN}
+          luarocks upload "rockspecs/lua-resty-session-api7-${VERSION_WITHOUT_V}-0.rockspec" --api-key="${LUAROCKS_TOKEN}"
